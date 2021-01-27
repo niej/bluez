@@ -5,6 +5,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 from optparse import OptionParser
 import sys
+import subprocess
 import dbus
 import dbus.service
 import dbus.mainloop.glib
@@ -21,6 +22,48 @@ AGENT_PATH = "/test/agent"
 bus = None
 device_obj = None
 dev_path = None
+
+# ID of the device we care about
+dev_id = '00_1D_54_AB_DC_72'
+
+def cb(iface=None, mbr=None, path=None):
+
+        print('iface: %s' % iface)
+        print('mbr: %s' % mbr)
+        print('path: %s' % path)
+        print("\n")
+
+        if mbr == "Connected":
+            subprocess.call(["echo", "connected > /tmp/bc"])
+            print('conn')
+
+        elif mbr == "Disconnected":
+            subprocess.call(["echo", "disconnected > /tmp/bc"])
+            print('dconn')
+
+def catchall_signal_handler(*args, **kwargs):
+    print("Caught signal (in catchall handler) "
+           + kwargs['dbus_interface'] + "." + kwargs['member'])
+    for arg in args:
+        print("        " + str(arg))
+
+
+def propertyListener(self, name, value):
+	
+	print(name)
+	# Stop the loop needed to update the value of the property
+	try:
+		self.propertyLoop.quit()
+	except:
+		pass
+	#if name != "Discovering":
+	#	self.propertyLoop.quit()
+
+def interfaces_added(path, interfaces):
+    print('Device added at {}'.format(path))
+    if 'org.bluez.Device1' in interfaces:
+        print('Device added at {}'.format(path))
+        Device(path)
 
 def ask(prompt):
 	try:
@@ -176,6 +219,34 @@ if __name__ == '__main__':
 		device_obj = device
 	else:
 		manager.RequestDefaultAgent(path)
+
+	#bus.add_signal_receiver(catchall_signal_handler, interface_keyword='dbus_interface', member_keyword='member')
+	#bus.add_signal_receiver(catchall_signal_handler, interface_keyword='dbus_interface', member_keyword='member')
+	#manager.connect_to_signal("PropertiesChanged", propertyListener)
+	#manager.connect_to_signal("PropertiesChanged", propertyListener, interface_keyword='iface', member_keyword='mbr', path_keyword='path')
+	#adaptor = bluezutils.find_adapter()
+	#adaptor.connect_to_signal("PropertiesChanged", propertyListener)
+
+
+	mng =  dbus.Interface(bus.get_object('org.bluez', '/'),
+			'org.freedesktop.DBus.ObjectManager')
+	bus.add_signal_receiver(interfaces_added,
+			dbus_interface='org.freedesktop.DBus.ObjectManager',
+			signal_name='InterfacesAdded')
+
+
+
+	# Figure out the path to the headset
+	#man = bus.get_object('org.bluez', '/')
+	#iface = dbus.Interface(man, 'org.bluez.Manager')
+	#adapterPath = iface.DefaultAdapter()
+
+	#headset = bus.get_object('org.bluez', adapterPath + '/dev_' + dev_id)
+	#headset = manager
+
+	#headset.connect_to_signal("Connected", cb, interface_keyword='iface', member_keyword='mbr', path_keyword='path')
+	#headset.connect_to_signal("Disconnected", cb, interface_keyword='iface', member_keyword='mbr', path_keyword='path')
+
 
 	mainloop.run()
 
