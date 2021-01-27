@@ -60,10 +60,30 @@ def propertyListener(self, name, value):
 	#	self.propertyLoop.quit()
 
 def interfaces_added(path, interfaces):
+    print(interfaces)
     print('Device added at {}'.format(path))
     if 'org.bluez.Device1' in interfaces:
         print('Device added at {}'.format(path))
         Device(path)
+
+def on_prop_changed(iface, changed_props, invalid_props):
+	#print("iface:", iface)
+	#print("changed_props:", changed_props)
+	if 'org.bluez.Device1' in iface:
+		print("======bluez found========")
+		#print("iface:", iface)
+		#print("changed_props:", changed_props)
+		#print("invalid_props:", invalid_props)
+		if 'Connected' in changed_props:
+			#print("conn found in changed_props")
+			#print(changed_props['Connected'])
+			if 1 == changed_props['Connected']:
+				print("connect")
+				subprocess.call(["echo", "connected"])
+			if 0 == changed_props['Connected']:
+				print("disconnect")
+				subprocess.call(["echo", "disconnected"])
+		print("----done------")
 
 def ask(prompt):
 	try:
@@ -221,18 +241,21 @@ if __name__ == '__main__':
 		manager.RequestDefaultAgent(path)
 
 	#bus.add_signal_receiver(catchall_signal_handler, interface_keyword='dbus_interface', member_keyword='member')
-	#bus.add_signal_receiver(catchall_signal_handler, interface_keyword='dbus_interface', member_keyword='member')
 	#manager.connect_to_signal("PropertiesChanged", propertyListener)
 	#manager.connect_to_signal("PropertiesChanged", propertyListener, interface_keyword='iface', member_keyword='mbr', path_keyword='path')
 	#adaptor = bluezutils.find_adapter()
 	#adaptor.connect_to_signal("PropertiesChanged", propertyListener)
 
 
-	mng =  dbus.Interface(bus.get_object('org.bluez', '/'),
-			'org.freedesktop.DBus.ObjectManager')
-	bus.add_signal_receiver(interfaces_added,
-			dbus_interface='org.freedesktop.DBus.ObjectManager',
-			signal_name='InterfacesAdded')
+	bus.add_signal_receiver(on_prop_changed,
+			dbus_interface='org.freedesktop.DBus.Properties',
+			signal_name='PropertiesChanged')
+
+#	mng =  dbus.Interface(bus.get_object('org.bluez', '/'),
+#			'org.freedesktop.DBus.ObjectManager')
+#	bus.add_signal_receiver(interfaces_added,
+#			dbus_interface='org.freedesktop.DBus.ObjectManager',
+#			signal_name='InterfacesAdded')
 
 
 
