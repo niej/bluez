@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+# testing hid from: https://github.com/Alkaid-Benetnash/EmuBTHID/blob/master/BluetoothHID.py
+
 from __future__ import absolute_import, print_function, unicode_literals
 
 import sys
@@ -8,6 +10,9 @@ import subprocess
 import dbus
 import dbus.service
 import dbus.mainloop.glib
+import os
+import socket
+import threading
 try:
   from gi.repository import GObject
 except ImportError:
@@ -17,6 +22,12 @@ import bluezutils
 BUS_NAME = 'org.bluez'
 AGENT_INTERFACE = 'org.bluez.Agent1'
 AGENT_PATH = "/test/agent"
+
+"""
+Change this CONTROLLER_MAC to the mac of your own device
+"""
+#CONTROLLER_MAC = "00:1A:7D:DA:71:06"
+CONTROLLER_MAC = "00:00:00:00:00:00"
 
 bus = None
 device_obj = None
@@ -54,6 +65,88 @@ def dev_connect(path):
 
 class Rejected(dbus.DBusException):
 	_dbus_error_name = "org.bluez.Error.Rejected"
+
+
+class BluetoothHIDProfile(dbus.service.Object):
+    def __init__(self, bus, path):
+        super(BluetoothHIDProfile, self).__init__(bus, path)
+        self.fd = -1
+
+    @dbus.service.method("org.bluez.Profile1", in_signature="", out_signature="")
+    def Release(self):
+        raise NotImplementedError("Release")
+
+    @dbus.service.method("org.bluez.Profile1", in_signature="", out_signature="")
+    def Cancel(self):
+        raise NotImplementedError("Cancel")
+
+    @dbus.service.method("org.bluez.Profile1", in_signature="oha{sv}", out_signature="")
+    def NewConnection(self, path, fd, properties):
+        self.fd = fd.take()
+        print("New Connection from (%s, %d)" % (path, self.fd))
+        for k, v in properties.items():
+            if k == "Version" or k == "Features":
+                print("    %s = 0x%04x " % (k, v))
+            else:
+                print("    %s = %s" % (k, v))
+
+    @dbus.service.method("org.bluez.Profile1",
+                         in_signature="o", out_signature="")
+    def RequestDisconnection(self, path):
+        print("RequestDisconnection(%s)" % (path))
+
+        if (self.fd > 0):
+            os.close(self.fd)
+            self.fd = -1
+
+
+def error_handler(e):
+    raise RuntimeError(str(e))
+
+
+class BluetoothHIDService(object):
+    PROFILE_PATH = "/org/bluez/bthid_profile"
+
+    HOST = 0
+    PORT = 1
+
+    def __init__(self, service_record, MAC):
+        self.P_CTRL = 0x0011
+        self.P_INTR = 0x0013
+        self.SELFMAC = MAC
+        bus = dbus.SystemBus()
+        bluez_obj = bus.get_object("org.bluez", "/org/bluez")
+        manager = dbus.Interface(bluez_obj, "org.bluez.ProfileManager1")
+
+        BluetoothHIDProfile(bus, self.PROFILE_PATH)
+        opts = {
+            "ServiceRecord": service_record,
+            "Name": "BTKeyboardProfile",
+            "RequireAuthentication": False,
+            "RequireAuthorization": False,
+            "Service": "MY BTKBD",
+            "Role": "server"
+        }
+
+        sock_control = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        sock_control.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock_inter = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        sock_inter.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock_control.bind((self.SELFMAC, self.P_CTRL))
+        sock_inter.bind((self.SELFMAC, self.P_INTR))
+        manager.RegisterProfile(self.PROFILE_PATH, "00001124-0000-1000-8000-00805f9b34fb", opts)
+        print("Registered")
+        sock_control.listen(1)
+        sock_inter.listen(1)
+        print("waiting for connection")
+        self.ccontrol, cinfo = sock_control.accept()
+        print("Control channel connected to " + cinfo[self.HOST])
+        self.cinter, cinfo = sock_inter.accept()
+        print("Interrupt channel connected to " + cinfo[self.HOST])
+
+    def send(self, bytes_buf):
+        self.cinter.send(bytes_buf)
+
 
 class Agent(dbus.service.Object):
 	exit_on_release = True
@@ -166,6 +259,16 @@ if __name__ == '__main__':
 	bus.add_signal_receiver(on_prop_changed,
 			dbus_interface='org.freedesktop.DBus.Properties',
 			signal_name='PropertiesChanged')
+
+	print("add_signal done")
+	service_record = open("sdp_record_kbd.xml").read()
+
+	# If call BluetoothHIDService(), we are blocked at line 139 "waiting for connection"
+	# and mainloop is not run. Then connection cannot be established.
+	#bthid_srv = BluetoothHIDService(service_record, CONTROLLER_MAC)
+	x = threading.Thread(target=BluetoothHIDService, args=(service_record, CONTROLLER_MAC))
+	x.start()
+	print("BluetoothHIDService class created")
 
 	mainloop.run()
 
