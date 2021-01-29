@@ -3,6 +3,9 @@
 
 # testing hid from: https://github.com/Alkaid-Benetnash/EmuBTHID/blob/master/BluetoothHID.py
 
+# sdp_record.xml file and p_ctl/intr is from:
+# https://github.com/AnesBenmerzoug/Bluetooth_HID/blob/master/sdp_record.xml
+
 from __future__ import absolute_import, print_function, unicode_literals
 
 import sys
@@ -27,6 +30,7 @@ AGENT_PATH = "/test/agent"
 Change this CONTROLLER_MAC to the mac of your own device
 """
 #CONTROLLER_MAC = "00:1A:7D:DA:71:06"
+#CONTROLLER_MAC = "02:00:43:80:9B:EE"
 CONTROLLER_MAC = "00:00:00:00:00:00"
 
 bus = None
@@ -41,10 +45,10 @@ def on_prop_changed(iface, changed_props, invalid_props):
 		if 'Connected' in changed_props:
 			if 1 == changed_props['Connected']:
 				print("BT connected, enabling WiFi")
-				subprocess.call(["ifconfig", "wlan0", "up"])
+				#subprocess.call(["ifconfig", "wlan0", "up"])
 			if 0 == changed_props['Connected']:
 				print("BT disconnected, disabling WiFi")
-				subprocess.call(["ifconfig", "wlan0", "down"])
+				#subprocess.call(["ifconfig", "wlan0", "down"])
 		print("----done------")
 
 def ask(prompt):
@@ -111,8 +115,10 @@ class BluetoothHIDService(object):
     PORT = 1
 
     def __init__(self, service_record, MAC):
-        self.P_CTRL = 0x0011
-        self.P_INTR = 0x0013
+        #self.P_CTRL = 0x0011
+        #self.P_INTR = 0x0013
+        self.P_CTRL = 0x0017
+        self.P_INTR = 0x0019
         self.SELFMAC = MAC
         bus = dbus.SystemBus()
         bluez_obj = bus.get_object("org.bluez", "/org/bluez")
@@ -181,7 +187,7 @@ class Agent(dbus.service.Object):
 	def RequestPasskey(self, device):
 		print("RequestPasskey (%s)" % (device))
 		set_trusted(device)
-		passkey = ask("Enter passkey: ")
+		passkey = "2211"
 		return dbus.UInt32(passkey)
 
 	@dbus.service.method(AGENT_INTERFACE,
@@ -199,11 +205,8 @@ class Agent(dbus.service.Object):
 					in_signature="ou", out_signature="")
 	def RequestConfirmation(self, device, passkey):
 		print("RequestConfirmation (%s, %06d)" % (device, passkey))
-		confirm = ask("Confirm passkey (yes/no): ")
-		if (confirm == "yes"):
-			set_trusted(device)
-			return
-		raise Rejected("Passkey doesn't match")
+		set_trusted(device)
+		return
 
 	@dbus.service.method(AGENT_INTERFACE,
 					in_signature="o", out_signature="")
@@ -261,7 +264,10 @@ if __name__ == '__main__':
 			signal_name='PropertiesChanged')
 
 	print("add_signal done")
-	service_record = open("sdp_record_kbd.xml").read()
+	try:
+		service_record = open("sdp_record.xml").read()
+	except:
+		sys.exit("Cannot find sdp_record.xml")
 
 	# If call BluetoothHIDService(), we are blocked at line 139 "waiting for connection"
 	# and mainloop is not run. Then connection cannot be established.
